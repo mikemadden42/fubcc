@@ -33,3 +33,8 @@
 
 # cmake directories
 build
+
+# clion directories
+.idea/
+cmake-build-debug/
+cmake-build-release/

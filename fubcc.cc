@@ -44,7 +44,7 @@ BinaryType parseInfoPlist(const std::string& infoPlistPath) {
             // std::cout << "CFBundleExecutable: " << bundleExecutable <<
             // std::endl;
 
-            // Construct the path to the executable file under MacOS directory
+            // Construct the path to the executable file under macOS directory
             std::string executablePath = infoPlistPath;
             size_t pos = executablePath.find_last_of('/');
             executablePath =
@@ -104,9 +104,9 @@ void printProgramList(const std::string& title,
                   return a.executableName < b.executableName;
               });
 
-    std::cout << "\n" << title << ":\n";
+    std::cout << std::endl << title << ":" << std::endl;
     for (const auto& program : programs) {
-        std::cout << program.executableName << "\n";
+        std::cout << program.executableName << std::endl;
     }
 }
 
