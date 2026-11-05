@@ -1,3 +1,4 @@
+#include <libkern/OSByteOrder.h>
 #include <mach-o/fat.h>
 #include <mach-o/loader.h>
 
@@ -29,6 +30,102 @@ std::string getCFBundleExecutable(const std::string& content) {
     return "";
 }
 
+BinaryType archFromCpuType(cpu_type_t cpuType) {
+    switch (cpuType) {
+        case CPU_TYPE_X86_64:
+            return Intel;
+        case CPU_TYPE_ARM64:
+            return AppleSilicon;
+        default:
+            return Unknown;
+    }
+}
+
+BinaryType detectArch(const std::string& executablePath) {
+    std::ifstream file(executablePath, std::ios::binary);
+    if (!file.is_open()) {
+        std::cerr << "Error opening executable file: " << executablePath
+                  << std::endl;
+        return Unknown;
+    }
+
+    uint32_t magic;
+    if (!file.read(reinterpret_cast<char*>(&magic), sizeof(magic))) {
+        std::cerr << "Error reading executable file: " << executablePath
+                  << std::endl;
+        return Unknown;
+    }
+    file.seekg(0);
+
+    // Fat headers are always big-endian on disk, whatever the host order.
+    if (magic == FAT_MAGIC || magic == FAT_CIGAM || magic == FAT_MAGIC_64 ||
+        magic == FAT_CIGAM_64) {
+        fat_header header;
+        if (!file.read(reinterpret_cast<char*>(&header), sizeof(header))) {
+            std::cerr << "Truncated fat header: " << executablePath
+                      << std::endl;
+            return Unknown;
+        }
+
+        bool is64 = magic == FAT_MAGIC_64 || magic == FAT_CIGAM_64;
+        uint32_t archCount = OSSwapBigToHostInt32(header.nfat_arch);
+        bool hasIntel = false;
+        bool hasAppleSilicon = false;
+
+        for (uint32_t i = 0; i < archCount; ++i) {
+            cpu_type_t cpuType;
+            if (is64) {
+                fat_arch_64 arch;
+                if (!file.read(reinterpret_cast<char*>(&arch), sizeof(arch))) {
+                    break;
+                }
+                cpuType = OSSwapBigToHostInt32(arch.cputype);
+            } else {
+                fat_arch arch;
+                if (!file.read(reinterpret_cast<char*>(&arch), sizeof(arch))) {
+                    break;
+                }
+                cpuType = OSSwapBigToHostInt32(arch.cputype);
+            }
+
+            BinaryType type = archFromCpuType(cpuType);
+            hasIntel |= type == Intel;
+            hasAppleSilicon |= type == AppleSilicon;
+        }
+
+        if (hasIntel && hasAppleSilicon) {
+            return Universal;
+        } else if (hasAppleSilicon) {
+            return AppleSilicon;
+        } else if (hasIntel) {
+            return Intel;
+        }
+        std::cerr << "No x86_64 or arm64 slice in: " << executablePath
+                  << std::endl;
+        return Unknown;
+    }
+
+    // mach_header and mach_header_64 share the same leading fields, so the
+    // 32-bit struct is enough to read cputype from either.
+    if (magic == MH_MAGIC || magic == MH_CIGAM || magic == MH_MAGIC_64 ||
+        magic == MH_CIGAM_64) {
+        mach_header header;
+        if (!file.read(reinterpret_cast<char*>(&header), sizeof(header))) {
+            std::cerr << "Truncated Mach-O header: " << executablePath
+                      << std::endl;
+            return Unknown;
+        }
+
+        bool swapped = magic == MH_CIGAM || magic == MH_CIGAM_64;
+        cpu_type_t cpuType =
+            swapped ? OSSwapInt32(header.cputype) : header.cputype;
+        return archFromCpuType(cpuType);
+    }
+
+    std::cerr << "Unknown Binary Format: " << executablePath << std::endl;
+    return Unknown;
+}
+
 BinaryType parseInfoPlist(const std::string& infoPlistPath) {
     std::ifstream file(infoPlistPath,
                        std::ios::binary);  // Open the file in binary mode
@@ -52,38 +149,7 @@ BinaryType parseInfoPlist(const std::string& infoPlistPath) {
 
             // std::cout << "Executable Path: " << executablePath << std::endl;
 
-            // Check the architecture of the executable
-            std::ifstream execFile(executablePath, std::ios::binary);
-            if (execFile.is_open()) {
-                uint32_t magic;
-                execFile.read(reinterpret_cast<char*>(&magic), sizeof(magic));
-
-                if (magic == FAT_MAGIC || magic == FAT_CIGAM) {
-                    // std::cout << "Universal Binary" << std::endl;
-                    return Universal;
-                } else {
-                    execFile.seekg(0);  // Reset file position
-                    execFile.read(reinterpret_cast<char*>(&magic),
-                                  sizeof(magic));
-                    if (magic == MH_MAGIC || magic == MH_CIGAM) {
-                        // std::cout << "Intel (x86_64) Binary" << std::endl;
-                        return Intel;
-                    } else if (magic == MH_MAGIC_64 || magic == MH_CIGAM_64) {
-                        // std::cout << "Apple Silicon (arm64) Binary" <<
-                        // std::endl;
-                        return AppleSilicon;
-                    } else {
-                        std::cerr << "Unknown Binary Format" << std::endl;
-                        return Unknown;
-                    }
-                }
-
-                execFile.close();
-            } else {
-                std::cerr << "Error opening executable file: " << executablePath
-                          << std::endl;
-                return Unknown;
-            }
+            return detectArch(executablePath);
         } else {
             std::cerr << "Error: CFBundleExecutable not found in "
                       << infoPlistPath << std::endl;
