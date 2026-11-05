@@ -27,14 +27,14 @@
 
 ## Smaller issues
 
-- [ ] Unknown apps are dropped without a trace. Add an "Unknown" list.
+- [x] Unknown apps are dropped without a trace. Add an "Unknown" list.
 - [x] Info.plist is read and regex-parsed twice (`parseInfoPlist` and
   `fubcc.cc:135-139`). Return the name and type together.
 - [x] `ProgramInfo::executablePath` holds the plist path, not the executable
   path (`fubcc.cc:142`).
 - [x] Remove dead code: the redundant `seekg(0)` + re-read (`fubcc.cc:65-67`)
   and the `execFile.close()` that can never run (`fubcc.cc:81`).
-- [ ] The search path is hard-coded to `/Applications` and the scan isn't
+- [x] The search path is hard-coded to `/Applications` and the scan isn't
   recursive. It misses `/Applications/Utilities`, `~/Applications`, nested
   folders and `/System/Applications`. Take paths from `argv` and filter on the
   `.app` extension.
