@@ -7,12 +7,14 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <tuple>
 
 namespace fs = std::filesystem;
 
 enum BinaryType { Unknown, Universal, Intel, AppleSilicon };
 
 struct ProgramInfo {
+    fs::path bundlePath;
     std::string executableName;
     std::string executablePath;
     BinaryType binaryType;
@@ -155,74 +157,100 @@ bool readBundleExecutable(const std::string& bundlePath, ProgramInfo& info) {
 }
 
 void printProgramList(const std::string& title,
-                      std::vector<ProgramInfo>& programs) {
-    // Sort the vector alphabetically based on executableName
-    std::sort(programs.begin(), programs.end(),
-              [](const ProgramInfo& a, const ProgramInfo& b) {
-                  return a.executableName < b.executableName;
-              });
-
+                      const std::vector<ProgramInfo>& programs,
+                      BinaryType binaryType) {
     std::cout << std::endl << title << ":" << std::endl;
     for (const auto& program : programs) {
-        std::cout << program.executableName << std::endl;
-    }
-}
-
-void listDirectoriesAndInfoPlist(const std::string& path) {
-    std::vector<ProgramInfo> universalBinaries;
-    std::vector<ProgramInfo> intelBinaries;
-    std::vector<ProgramInfo> appleSiliconBinaries;
-
-    try {
-        for (const auto& entry : fs::directory_iterator(path)) {
-            if (fs::is_directory(entry.status())) {
-                std::string directoryPath = entry.path().string();
-                // std::cout << "Directory: " << directoryPath << std::endl;
-
-                // Check for Contents/Info.plist
-                std::string infoPlistPath =
-                    directoryPath + "/Contents/Info.plist";
-                if (fs::exists(infoPlistPath)) {
-                    // std::cout << "Info.plist: " << infoPlistPath <<
-                    // std::endl;
-                    ProgramInfo programInfo;
-                    if (!readBundleExecutable(directoryPath, programInfo)) {
-                        continue;
-                    }
-                    programInfo.binaryType =
-                        detectArch(programInfo.executablePath);
-
-                    switch (programInfo.binaryType) {
-                        case Universal:
-                            universalBinaries.push_back(programInfo);
-                            break;
-                        case Intel:
-                            intelBinaries.push_back(programInfo);
-                            break;
-                        case AppleSilicon:
-                            appleSiliconBinaries.push_back(programInfo);
-                            break;
-                        default:
-                            break;
-                    }
-                }
-            }
+        if (program.binaryType == binaryType) {
+            std::cout << program.executableName << std::endl;
         }
-
-        // Print each list
-        printProgramList("Intel (x86_64) Binaries", intelBinaries);
-        printProgramList("Apple Silicon (arm64) Binaries",
-                         appleSiliconBinaries);
-        printProgramList("Universal Binaries", universalBinaries);
-
-    } catch (const std::filesystem::filesystem_error& e) {
-        std::cerr << "Error accessing directory: " << e.what() << std::endl;
     }
 }
 
-int main() {
-    std::string path = "/Applications";  // Specify the directory path
-    listDirectoriesAndInfoPlist(path);
+bool isAppBundle(const fs::path& path) {
+    std::error_code ec;
+    return path.extension() == ".app" && fs::is_directory(path, ec);
+}
 
-    return 0;
+void addBundle(const fs::path& bundlePath, std::vector<ProgramInfo>& programs) {
+    ProgramInfo programInfo;
+    std::error_code ec;
+    programInfo.bundlePath = fs::weakly_canonical(bundlePath, ec);
+    if (ec) {
+        programInfo.bundlePath = bundlePath;
+    }
+    if (readBundleExecutable(bundlePath.string(), programInfo)) {
+        programInfo.binaryType = detectArch(programInfo.executablePath);
+    } else {
+        // Keep the bundle so it shows up in the Unknown list.
+        programInfo.executableName = bundlePath.stem().string();
+        programInfo.binaryType = Unknown;
+    }
+    programs.push_back(programInfo);
+}
+
+// Recursively collects .app bundles under root. Bundles are not descended
+// into, so helper apps nested inside an app are skipped.
+bool scanPath(const fs::path& root, std::vector<ProgramInfo>& programs) {
+    if (isAppBundle(root)) {
+        addBundle(root, programs);
+        return true;
+    }
+
+    std::error_code ec;
+    fs::recursive_directory_iterator it(
+        root, fs::directory_options::skip_permission_denied, ec);
+    if (ec) {
+        std::cerr << "Error accessing directory: " << root.string() << ": "
+                  << ec.message() << std::endl;
+        return false;
+    }
+
+    const fs::recursive_directory_iterator end;
+    while (it != end) {
+        if (isAppBundle(it->path())) {
+            addBundle(it->path(), programs);
+            it.disable_recursion_pending();
+        }
+        it.increment(ec);
+        if (ec) {
+            std::cerr << "Error scanning " << root.string() << ": "
+                      << ec.message() << std::endl;
+            return false;
+        }
+    }
+    return true;
+}
+
+int main(int argc, char* argv[]) {
+    std::vector<fs::path> paths(argv + 1, argv + argc);
+    if (paths.empty()) {
+        paths.push_back("/Applications");
+    }
+
+    std::vector<ProgramInfo> programs;
+    bool ok = true;
+    for (const auto& path : paths) {
+        ok &= scanPath(path, programs);
+    }
+
+    std::sort(programs.begin(), programs.end(),
+              [](const ProgramInfo& a, const ProgramInfo& b) {
+                  return std::tie(a.executableName, a.bundlePath) <
+                         std::tie(b.executableName, b.bundlePath);
+              });
+
+    // Overlapping paths can reach the same bundle more than once.
+    programs.erase(std::unique(programs.begin(), programs.end(),
+                               [](const ProgramInfo& a, const ProgramInfo& b) {
+                                   return a.bundlePath == b.bundlePath;
+                               }),
+                   programs.end());
+
+    printProgramList("Intel (x86_64) Binaries", programs, Intel);
+    printProgramList("Apple Silicon (arm64) Binaries", programs, AppleSilicon);
+    printProgramList("Universal Binaries", programs, Universal);
+    printProgramList("Unknown", programs, Unknown);
+
+    return ok ? 0 : 1;
 }
