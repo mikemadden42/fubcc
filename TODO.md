@@ -9,7 +9,7 @@
   32-bit binaries. Read the full `mach_header_64` and check `cputype`
   (`CPU_TYPE_X86_64` vs `CPU_TYPE_ARM64`).
 
-- [ ] **Apps with a binary Info.plist are skipped** (`fubcc.cc:20-30`)
+- [x] **Apps with a binary Info.plist are skipped** (`fubcc.cc:20-30`)
   The regex only handles XML plists. Apps that use the binary `bplist00` format
   (Numbers, Pages, Keynote, Xcode, iMovie, GarageBand, Spotify, Kindle,
   WhatsApp, ...) fail with "CFBundleExecutable not found". Use CoreFoundation
@@ -28,9 +28,9 @@
 ## Smaller issues
 
 - [ ] Unknown apps are dropped without a trace. Add an "Unknown" list.
-- [ ] Info.plist is read and regex-parsed twice (`parseInfoPlist` and
+- [x] Info.plist is read and regex-parsed twice (`parseInfoPlist` and
   `fubcc.cc:135-139`). Return the name and type together.
-- [ ] `ProgramInfo::executablePath` holds the plist path, not the executable
+- [x] `ProgramInfo::executablePath` holds the plist path, not the executable
   path (`fubcc.cc:142`).
 - [x] Remove dead code: the redundant `seekg(0)` + re-read (`fubcc.cc:65-67`)
   and the `execFile.close()` that can never run (`fubcc.cc:81`).

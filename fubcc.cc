@@ -1,12 +1,12 @@
+#include <CoreFoundation/CoreFoundation.h>
 #include <libkern/OSByteOrder.h>
 #include <mach-o/fat.h>
 #include <mach-o/loader.h>
 
+#include <climits>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <regex>
-#include <sstream>
 
 namespace fs = std::filesystem;
 
@@ -17,18 +17,6 @@ struct ProgramInfo {
     std::string executablePath;
     BinaryType binaryType;
 };
-
-std::string getCFBundleExecutable(const std::string& content) {
-    std::regex regex(
-        "<key>CFBundleExecutable</key>\\s*<string>([^<]+)</string>");
-    std::smatch match;
-
-    if (std::regex_search(content, match, regex) && match.size() == 2) {
-        return match[1].str();
-    }
-
-    return "";
-}
 
 BinaryType archFromCpuType(cpu_type_t cpuType) {
     switch (cpuType) {
@@ -126,40 +114,44 @@ BinaryType detectArch(const std::string& executablePath) {
     return Unknown;
 }
 
-BinaryType parseInfoPlist(const std::string& infoPlistPath) {
-    std::ifstream file(infoPlistPath,
-                       std::ios::binary);  // Open the file in binary mode
-    if (file.is_open()) {
-        std::stringstream buffer;
-        buffer << file.rdbuf();
-        std::string content = buffer.str();
-        file.close();
-
-        std::string bundleExecutable = getCFBundleExecutable(content);
-
-        if (!bundleExecutable.empty()) {
-            // std::cout << "CFBundleExecutable: " << bundleExecutable <<
-            // std::endl;
-
-            // Construct the path to the executable file under macOS directory
-            std::string executablePath = infoPlistPath;
-            size_t pos = executablePath.find_last_of('/');
-            executablePath =
-                executablePath.substr(0, pos) + "/MacOS/" + bundleExecutable;
-
-            // std::cout << "Executable Path: " << executablePath << std::endl;
-
-            return detectArch(executablePath);
-        } else {
-            std::cerr << "Error: CFBundleExecutable not found in "
-                      << infoPlistPath << std::endl;
-            return Unknown;
-        }
-    } else {
-        std::cerr << "Error opening Info.plist file: " << infoPlistPath
-                  << std::endl;
-        return Unknown;
+// Uses CoreFoundation to locate the bundle's executable, which handles both
+// XML and binary Info.plist files.
+bool readBundleExecutable(const std::string& bundlePath, ProgramInfo& info) {
+    CFURLRef bundleURL = CFURLCreateFromFileSystemRepresentation(
+        kCFAllocatorDefault, reinterpret_cast<const UInt8*>(bundlePath.c_str()),
+        bundlePath.size(), true);
+    if (!bundleURL) {
+        return false;
     }
+
+    CFBundleRef bundle = CFBundleCreate(kCFAllocatorDefault, bundleURL);
+    CFRelease(bundleURL);
+    if (!bundle) {
+        std::cerr << "Error opening bundle: " << bundlePath << std::endl;
+        return false;
+    }
+
+    CFURLRef executableURL = CFBundleCopyExecutableURL(bundle);
+    CFRelease(bundle);
+    if (!executableURL) {
+        std::cerr << "Error: no executable found in " << bundlePath
+                  << std::endl;
+        return false;
+    }
+
+    char path[PATH_MAX];
+    bool ok = CFURLGetFileSystemRepresentation(
+        executableURL, true, reinterpret_cast<UInt8*>(path), sizeof(path));
+    CFRelease(executableURL);
+    if (!ok) {
+        std::cerr << "Error resolving executable path in " << bundlePath
+                  << std::endl;
+        return false;
+    }
+
+    info.executablePath = path;
+    info.executableName = fs::path(path).filename().string();
+    return true;
 }
 
 void printProgramList(const std::string& title,
@@ -193,22 +185,14 @@ void listDirectoriesAndInfoPlist(const std::string& path) {
                 if (fs::exists(infoPlistPath)) {
                     // std::cout << "Info.plist: " << infoPlistPath <<
                     // std::endl;
-                    BinaryType binaryType = parseInfoPlist(infoPlistPath);
-
                     ProgramInfo programInfo;
+                    if (!readBundleExecutable(directoryPath, programInfo)) {
+                        continue;
+                    }
+                    programInfo.binaryType =
+                        detectArch(programInfo.executablePath);
 
-                    // Read the contents of Info.plist
-                    std::ifstream file(infoPlistPath);
-                    std::stringstream buffer;
-                    buffer << file.rdbuf();
-                    programInfo.executableName =
-                        getCFBundleExecutable(buffer.str());
-                    file.close();
-
-                    programInfo.executablePath = infoPlistPath;
-                    programInfo.binaryType = binaryType;
-
-                    switch (binaryType) {
+                    switch (programInfo.binaryType) {
                         case Universal:
                             universalBinaries.push_back(programInfo);
                             break;
