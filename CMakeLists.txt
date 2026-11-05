@@ -18,4 +18,5 @@ if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     set_target_properties(fubcc PROPERTIES
         OSX_ARCHITECTURES "x86_64;arm64"
     )
+    target_link_libraries(fubcc PRIVATE "-framework CoreFoundation")
 endif()
