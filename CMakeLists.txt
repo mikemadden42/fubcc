@@ -16,3 +16,8 @@ set_target_properties(fubcc PROPERTIES
     OSX_ARCHITECTURES "x86_64;arm64"
 )
 target_link_libraries(fubcc PRIVATE "-framework CoreFoundation")
+
+enable_testing()
+add_test(NAME fubcc
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_tests.sh $<TARGET_FILE:fubcc>
+)
