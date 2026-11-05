@@ -3,11 +3,15 @@
 #include <mach-o/fat.h>
 #include <mach-o/loader.h>
 
+#include <algorithm>
 #include <climits>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <string>
 #include <tuple>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -35,14 +39,14 @@ BinaryType detectArch(const std::string& executablePath) {
     std::ifstream file(executablePath, std::ios::binary);
     if (!file.is_open()) {
         std::cerr << "Error opening executable file: " << executablePath
-                  << std::endl;
+                  << "\n";
         return Unknown;
     }
 
     uint32_t magic;
     if (!file.read(reinterpret_cast<char*>(&magic), sizeof(magic))) {
         std::cerr << "Error reading executable file: " << executablePath
-                  << std::endl;
+                  << "\n";
         return Unknown;
     }
     file.seekg(0);
@@ -52,8 +56,7 @@ BinaryType detectArch(const std::string& executablePath) {
         magic == FAT_CIGAM_64) {
         fat_header header;
         if (!file.read(reinterpret_cast<char*>(&header), sizeof(header))) {
-            std::cerr << "Truncated fat header: " << executablePath
-                      << std::endl;
+            std::cerr << "Truncated fat header: " << executablePath << "\n";
             return Unknown;
         }
 
@@ -90,8 +93,7 @@ BinaryType detectArch(const std::string& executablePath) {
         } else if (hasIntel) {
             return Intel;
         }
-        std::cerr << "No x86_64 or arm64 slice in: " << executablePath
-                  << std::endl;
+        std::cerr << "No x86_64 or arm64 slice in: " << executablePath << "\n";
         return Unknown;
     }
 
@@ -101,8 +103,7 @@ BinaryType detectArch(const std::string& executablePath) {
         magic == MH_CIGAM_64) {
         mach_header header;
         if (!file.read(reinterpret_cast<char*>(&header), sizeof(header))) {
-            std::cerr << "Truncated Mach-O header: " << executablePath
-                      << std::endl;
+            std::cerr << "Truncated Mach-O header: " << executablePath << "\n";
             return Unknown;
         }
 
@@ -112,7 +113,7 @@ BinaryType detectArch(const std::string& executablePath) {
         return archFromCpuType(cpuType);
     }
 
-    std::cerr << "Unknown Binary Format: " << executablePath << std::endl;
+    std::cerr << "Unknown Binary Format: " << executablePath << "\n";
     return Unknown;
 }
 
@@ -129,15 +130,14 @@ bool readBundleExecutable(const std::string& bundlePath, ProgramInfo& info) {
     CFBundleRef bundle = CFBundleCreate(kCFAllocatorDefault, bundleURL);
     CFRelease(bundleURL);
     if (!bundle) {
-        std::cerr << "Error opening bundle: " << bundlePath << std::endl;
+        std::cerr << "Error opening bundle: " << bundlePath << "\n";
         return false;
     }
 
     CFURLRef executableURL = CFBundleCopyExecutableURL(bundle);
     CFRelease(bundle);
     if (!executableURL) {
-        std::cerr << "Error: no executable found in " << bundlePath
-                  << std::endl;
+        std::cerr << "Error: no executable found in " << bundlePath << "\n";
         return false;
     }
 
@@ -147,7 +147,7 @@ bool readBundleExecutable(const std::string& bundlePath, ProgramInfo& info) {
     CFRelease(executableURL);
     if (!ok) {
         std::cerr << "Error resolving executable path in " << bundlePath
-                  << std::endl;
+                  << "\n";
         return false;
     }
 
@@ -159,10 +159,10 @@ bool readBundleExecutable(const std::string& bundlePath, ProgramInfo& info) {
 void printProgramList(const std::string& title,
                       const std::vector<ProgramInfo>& programs,
                       BinaryType binaryType) {
-    std::cout << std::endl << title << ":" << std::endl;
+    std::cout << "\n" << title << ":\n";
     for (const auto& program : programs) {
         if (program.binaryType == binaryType) {
-            std::cout << program.executableName << std::endl;
+            std::cout << program.executableName << "\n";
         }
     }
 }
@@ -202,7 +202,7 @@ bool scanPath(const fs::path& root, std::vector<ProgramInfo>& programs) {
         root, fs::directory_options::skip_permission_denied, ec);
     if (ec) {
         std::cerr << "Error accessing directory: " << root.string() << ": "
-                  << ec.message() << std::endl;
+                  << ec.message() << "\n";
         return false;
     }
 
@@ -215,7 +215,7 @@ bool scanPath(const fs::path& root, std::vector<ProgramInfo>& programs) {
         it.increment(ec);
         if (ec) {
             std::cerr << "Error scanning " << root.string() << ": "
-                      << ec.message() << std::endl;
+                      << ec.message() << "\n";
             return false;
         }
     }
