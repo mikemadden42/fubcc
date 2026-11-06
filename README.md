@@ -23,6 +23,13 @@ cmake -S . -B build
 cmake --build build
 ```
 
+To run the tests, which build fixture apps with known architectures and check
+how fubcc classifies them:
+
+```sh
+ctest --test-dir build --output-on-failure
+```
+
 ## Usage
 
 ```sh
